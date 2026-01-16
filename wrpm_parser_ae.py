@@ -166,17 +166,18 @@ class WrpmParserAE:
         result = {
             'pressure': None,
             'vibration': None,
-            'ae_primary': None,  # .S&& - PRIMARY AE sensor data
-            'ae_secondary': None  # .SDD - Secondary AE/ultrasonic data
+            'ae_primary': None,  # .SDD - PRIMARY AE waveform data (has real varied values)
+            'ae_secondary': None  # .S&& - Secondary (often contains trigger/timing data, not waveforms)
         }
 
         # Find AE sensor files (PRIORITY for leak detection)
-        for candidate in [f'{base_name}.S&&', f'{base_name}.S&']:
+        # NOTE: SDD files contain actual waveform data, S&& often has timing/trigger data
+        for candidate in [f'{base_name}.SDD', f'{base_name}.SD']:
             if candidate in files:
                 result['ae_primary'] = candidate
                 break
 
-        for candidate in [f'{base_name}.SDD', f'{base_name}.SD']:
+        for candidate in [f'{base_name}.S&&', f'{base_name}.S&']:
             if candidate in files:
                 result['ae_secondary'] = candidate
                 break
@@ -198,8 +199,11 @@ class WrpmParserAE:
     def parse_waveform_int16(self, z: zipfile.ZipFile, filename: str) -> np.ndarray:
         """Parse waveform file as signed int16 array."""
         raw = z.read(filename)
+        # Handle odd byte counts by truncating to even
+        if len(raw) % 2 == 1:
+            raw = raw[:-1]
         num_samples = len(raw) // 2
-        ints = struct.unpack("<" + "h" * num_samples, raw)
+        ints = struct.unpack("<" + "h" * num_samples, raw[:num_samples*2])
         return np.array(ints, dtype=np.int16)
 
     def apply_calibration_g(self, raw_counts: np.ndarray, full_scale_g: float) -> np.ndarray:
