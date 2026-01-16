@@ -243,8 +243,8 @@ with st.expander("About This System", expanded=False):
     - **LEAKING valve** = Sustained "smear" pattern from gas escaping = **HIGH mean amplitude**
 
     **How it works:**
-    1. Upload a **Curves XML file** containing ultrasonic sensor data
-    2. AI extracts ULTRASONIC curves (36KHz - 44KHz narrow band)
+    1. Upload a **Curves XML file** or **WRPM file** containing ultrasonic sensor data
+    2. AI extracts ULTRASONIC/AE curves (36KHz - 44KHz narrow band)
     3. Pattern recognition analyzes amplitude signatures
     4. Detects leaks based on sustained elevation patterns
 
@@ -303,7 +303,7 @@ if uploaded_file is not None:
                     ultrasonic_cols = get_ultrasonic_curves(df_curves)
 
                 if not ultrasonic_cols:
-                    st.error("No ULTRASONIC curves found in XML file.")
+                    st.error("No ULTRASONIC/AE curves found in file.")
                 else:
                     st.info(f"Found {len(ultrasonic_cols)} ultrasonic curves to analyze")
 
