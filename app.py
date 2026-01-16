@@ -223,41 +223,41 @@ def create_waveform_plot(amplitudes, crank_angles, is_leak, mean_amp, valve_name
 
 # Header
 st.markdown('<div class="main-header">🤖 AI-Powered Valve Leak Detection</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Intelligent Pattern Recognition</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Intelligent Pattern Recognition for Natural Gas Compressors</div>', unsafe_allow_html=True)
 
 # Introduction
 with st.expander("About This System", expanded=False):
     st.markdown("""
-    ### AI-Powered Pattern Recognition
+    ### AI-Powered Leak Detection
 
-    This system uses **intelligent pattern recognition** to detect valve leaks from ultrasonic sensor data.
+    This system uses **AI pattern recognition** to detect valve leaks from ultrasonic acoustic emission (AE) sensor data.
 
-    **How the AI Works:**
-    - Analyzes acoustic emission waveform signatures
-    - Recognizes "smear" vs "spike" patterns automatically
-    - Learns optimal detection thresholds from validated examples
-    - Provides confidence scores and explainable results
+    **The Science:**
 
-    **Pattern Recognition:**
-    - **NORMAL valve** = Brief acoustic spike during valve event = **LOW mean amplitude**
-    - **LEAKING valve** = Sustained "smear" pattern from gas escaping = **HIGH mean amplitude**
+    Ultrasonic sensors (36-44 KHz narrow band) detect acoustic emissions from valve events:
+    - **NORMAL valve**: Clean closure creates brief acoustic spikes → **LOW mean amplitude** (~1-2G)
+    - **LEAKING valve**: Gas escaping through gaps creates continuous noise → **HIGH mean amplitude** (~3-5G)
 
-    **How it works:**
-    1. Upload a **Curves XML file** or **WRPM file** containing ultrasonic sensor data
-    2. AI extracts ULTRASONIC/AE curves (36KHz - 44KHz narrow band)
-    3. Pattern recognition analyzes amplitude signatures
-    4. Detects leaks based on sustained elevation patterns
+    **How It Works:**
+    1. Upload a Windrock **XML** or **WRPM** file containing ultrasonic sensor data
+    2. AI extracts and analyzes AE waveform data for each valve
+    3. Pattern recognition identifies "smear" patterns (sustained elevation = leak) vs "spike" patterns (brief peaks = normal)
+    4. Results show leak probability, confidence score, and detailed explanation
 
     **AI Detection Thresholds:**
-    - High sustained amplitude = Likely leak (smear pattern)
-    - Low amplitude with brief spikes = Normal operation
-    - Confidence scoring based on multiple pattern features
+    | Mean Amplitude | Classification |
+    |----------------|----------------|
+    | < 2G | Normal operation |
+    | 2-3G | Possible concern |
+    | 3-4G | Likely leak |
+    | > 4G | Probable leak |
+    | > 5G | Severe leak |
 
-    **Advantages:**
-    - Trained on validated leak examples
-    - No manual threshold tuning required
-    - Explainable AI results
-    - Consistent and reproducible
+    **Key Features:**
+    - Analyzes all cylinders and valves in a single file
+    - Color-coded results for quick identification
+    - Explainable AI results with physics explanations
+    - Interactive waveform visualizations
     """)
 
 st.markdown("---")
@@ -598,39 +598,38 @@ if uploaded_file is not None:
                     # Technical details
                     with st.expander("Technical Details - AI Pattern Recognition"):
                         st.markdown("""
-                        **Detection Approach: Intelligent Waveform Analysis**
+                        **Detection Method: AI Waveform Analysis**
 
-                        This AI system detects leaks by analyzing ultrasonic acoustic emission (AE) patterns.
+                        The AI analyzes ultrasonic acoustic emission (AE) sensor data to detect valve leaks.
 
-                        **AI Pattern Learning:**
-                        - Trained on validated leak examples from actual compressor data
-                        - Recognizes "smear" pattern (leak) vs "spike" pattern (normal)
-                        - Automatically learns optimal detection boundaries
-                        - Multi-feature weighted scoring algorithm
+                        **Why This Works:**
 
-                        **AI-Learned Thresholds:**
-                        - Mean amplitude > 5G: Severe leak (high confidence)
-                        - Mean amplitude 3.5-5G: Moderate leak
-                        - Mean amplitude 3-4G: Likely leak
-                        - Mean amplitude 2-3G: Possible leak
-                        - Mean amplitude < 2G: Normal operation
+                        Ultrasonic AE sensors (36-44 KHz) detect high-frequency acoustic emissions:
+                        - **Normal valve closure**: Creates brief mechanical impact → discrete amplitude spikes
+                        - **Leaking valve**: Gas escaping through seat creates continuous turbulent flow → sustained "smear" pattern
 
-                        **Pattern Features Analyzed:**
-                        - Sustained elevation ratio (above 1G, 2G, 5G)
-                        - Mean/median amplitude distribution
-                        - Waveform continuity analysis
-                        - Multi-criteria confidence scoring
+                        **AI Detection Thresholds:**
+                        | Metric | Normal | Leak Indicator |
+                        |--------|--------|----------------|
+                        | Mean amplitude | < 2G | > 3G |
+                        | % above 1G | < 70% | > 85% |
+                        | % above 2G | < 20% | > 50% |
 
-                        **Validation Results:**
-                        - C402 Cyl 3 CD (known leak): 93% confidence = CORRECTLY DETECTED
-                        - C402 Cyl 2 CD (normal): Normal classification
-                        - Leak valve shows 3.6x higher sustained amplitude
+                        **AI Scoring Algorithm:**
 
-                        **AI System Advantages:**
-                        - Learns from validated real-world examples
-                        - Explainable confidence scores
-                        - Reproducible and consistent results
-                        - Matches expert-identified "smear vs spike" patterns
+                        Leak probability is calculated using weighted criteria:
+                        - Mean amplitude level (35% weight)
+                        - Sustained elevation above 1G (25% weight)
+                        - Sustained elevation above 2G (25% weight)
+                        - High activity above 5G (15% weight)
+
+                        **Classification:**
+                        - Leak probability ≥ 50% → LEAK detected
+                        - Leak probability < 50% → Normal operation
+
+                        **Confidence Score:**
+
+                        Indicates certainty of the AI classification based on how far the measurements are from the 50% threshold.
                         """)
 
     except Exception as e:
@@ -639,22 +638,18 @@ if uploaded_file is not None:
 
 else:
     # No file uploaded yet
-    st.info("Upload a Curves XML file or WRPM file to begin analysis")
+    st.info("Upload a Windrock XML or WRPM file to begin analysis")
 
     st.markdown("---")
-    st.subheader("Sample Test Files")
+    st.subheader("Supported File Formats")
     st.markdown("""
-    Test the system with known leak and normal valve files:
+    **XML Files (Curves.xml)**
+    - Exported from Windrock diagnostic software
+    - Contains ultrasonic waveform data for all cylinders
 
-    **XML Files:**
-    - C402 files: Known leak in Cylinder 3 CD valve
-    - 578-B files: Multiple known leaks
-    - Other compressor files for comparison
-
-    **WRPM Files:**
-    - Dwale - Unit 3C.wrpm: Real-world compressor data with AE sensors
-    - Station H - Unit 2 C.wrpm: Station H data
-    - Station H - Unit 2 E.wrpm: Additional Station H data
+    **WRPM Files**
+    - Native Windrock portable recording format
+    - Contains AE sensor data and machine metadata
     """)
 
 # Footer
@@ -663,6 +658,5 @@ st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9rem;'>
     <p><strong>By Autoflow Solutions</strong></p>
     <p>AI-Powered Valve Leak Detection | Intelligent Pattern Recognition</p>
-    <p>Machine Learning Analysis of Ultrasonic Acoustic Emission Patterns</p>
 </div>
 """, unsafe_allow_html=True)
