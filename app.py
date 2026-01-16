@@ -223,7 +223,7 @@ def create_waveform_plot(amplitudes, crank_angles, is_leak, mean_amp, valve_name
 
 # Header
 st.markdown('<div class="main-header">🤖 AI-Powered Valve Leak Detection</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Intelligent Pattern Recognition for Natural Gas Compressors</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Intelligent Pattern Recognition for Compressors</div>', unsafe_allow_html=True)
 
 # Introduction
 with st.expander("About This System", expanded=False):
