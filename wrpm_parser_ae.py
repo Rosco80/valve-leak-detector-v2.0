@@ -2,10 +2,14 @@
 WRPM File Parser with AE Sensor Support for Leak Detection
 
 Parses Windrock .wrpm files (ZIP archives) and extracts:
-- Ultrasonic AE sensor data (.S&& files) - PRIMARY for leak detection
-- Pressure data (.S$$ files) - Secondary
-- Vibration data (.V$$ files) - Secondary
+- Ultrasonic AE sensor data (.SDD files) - PRIMARY for leak detection
+- Pressure data (.S$ files) - PVPT curves
+- Vibration data (.V$ files) - Secondary
 - Machine metadata and calibration
+
+Machine Type Detection:
+- Compressors (unit names ending in C, like 2C, 3C): 360° crank angle
+- Engines (unit names ending in E, like 2E): 720° crank angle
 
 Designed to work with the Physics-Based Leak Detector.
 """
@@ -30,6 +34,10 @@ class WrpmParserAE:
         parser = WrpmParserAE(wrpm_file_or_path)
         curves_df = parser.parse_to_dataframe()
         # Returns DataFrame compatible with XML parser format
+
+    Machine Type Detection:
+        - Compressors (2C, 3C, etc.): 360° crank angle
+        - Engines (2E, etc.): 720° crank angle
     """
 
     def __init__(self, wrpm_source):
@@ -55,6 +63,11 @@ class WrpmParserAE:
         self.full_scale_g = 10.0  # Default for AE sensors (G units)
         self.calibration_channels = []
 
+        # Machine type detection
+        self.machine_type = None  # 'compressor' or 'engine'
+        self.crank_angle_range = 360  # Default for compressors
+        self.is_engine = False  # Flag for excluding from leak detection
+
     def _get_zipfile(self):
         """Get zipfile object from source."""
         if self.file_obj:
@@ -73,11 +86,66 @@ class WrpmParserAE:
             machine_id = machine_id.replace('\r\n', ' - ').replace('\n', ' - ')
 
             self.machine_id = machine_id
+
+            # Detect machine type from ID
+            self._detect_machine_type()
+
             return machine_id
 
         except Exception as e:
             self.machine_id = "Unknown Machine"
             return self.machine_id
+
+    def _detect_machine_type(self):
+        """
+        Detect if machine is a compressor or engine based on unit name.
+
+        Naming convention:
+        - Unit names ending in 'C' (e.g., '2C', '3C') = Compressor = 360° crank angle
+        - Unit names ending in 'E' (e.g., '2E') = Engine = 720° crank angle
+        """
+        if not self.machine_id:
+            self.machine_type = 'compressor'
+            self.crank_angle_range = 360
+            self.is_engine = False
+            return
+
+        machine_id_upper = self.machine_id.upper()
+
+        # Check for engine indicators (unit ending in E)
+        # Patterns: "Unit 2E", "Unit 2 E", "2E", etc.
+        engine_patterns = [
+            r'UNIT\s*\d+\s*E\b',  # "Unit 2E" or "Unit 2 E"
+            r'\b\d+\s*E\b',       # "2E" or "2 E"
+            r'[-\s]E\b',          # " - E" or " E" at end
+        ]
+
+        for pattern in engine_patterns:
+            if re.search(pattern, machine_id_upper):
+                self.machine_type = 'engine'
+                self.crank_angle_range = 720
+                self.is_engine = True
+                return
+
+        # Check for compressor indicators (unit ending in C)
+        # Patterns: "Unit 2C", "Unit 3C", "2C", "3C", etc.
+        compressor_patterns = [
+            r'UNIT\s*\d+\s*C\b',  # "Unit 2C" or "Unit 2 C"
+            r'\b\d+\s*C\b',       # "2C" or "3C"
+            r'[-\s]C\b',          # " - C" or " C" at end
+        ]
+
+        for pattern in compressor_patterns:
+            if re.search(pattern, machine_id_upper):
+                self.machine_type = 'compressor'
+                self.crank_angle_range = 360
+                self.is_engine = False
+                return
+
+        # Default to compressor if no pattern matched
+        self.machine_type = 'compressor'
+        self.crank_angle_range = 360
+        self.is_engine = False
 
     def parse_date_from_filename(self, z: zipfile.ZipFile) -> Optional[datetime]:
         """
@@ -218,29 +286,48 @@ class WrpmParserAE:
         """Apply calibration to convert ADC counts to PSI."""
         return (raw_counts.astype(np.float32) / 32768.0) * full_scale_psi
 
-    def segment_multichannel_data(self, waveform: np.ndarray, num_channels: int = None) -> Dict[int, np.ndarray]:
+    def segment_multichannel_data(self, waveform: np.ndarray, num_channels: int = None,
+                                     points_per_rev: int = None) -> Dict[int, np.ndarray]:
         """
         Segment multi-channel waveform data into individual channels.
 
         Args:
             waveform: Combined waveform array
             num_channels: Number of channels (auto-detect if None)
+            points_per_rev: Points per revolution (auto-detect based on machine type if None)
 
         Returns:
             Dict mapping channel number to waveform array
         """
         total_samples = len(waveform)
 
+        # Determine points per revolution based on machine type
+        # Compressor (360°): 355 points
+        # Engine (720°): 710 points (or auto-detect)
+        if points_per_rev is None:
+            if self.is_engine:
+                points_per_rev = 710  # 720° engine
+            else:
+                points_per_rev = 355  # 360° compressor
+
         # Auto-detect number of channels
         if num_channels is None:
-            # Typical: 355 points per channel per revolution
-            # 8-10 channels is common
-            points_per_rev = 355
-
+            # Try common channel counts
             for n_channels in [8, 9, 10, 6, 12, 4]:
                 if total_samples % (n_channels * points_per_rev) == 0:
                     num_channels = n_channels
                     break
+
+            # If no exact match, try with slightly different points_per_rev
+            if num_channels is None:
+                for ppr in [355, 356, 354, 710, 720]:
+                    for n_channels in [8, 9, 10, 6, 12, 4]:
+                        if total_samples % (n_channels * ppr) == 0:
+                            num_channels = n_channels
+                            points_per_rev = ppr
+                            break
+                    if num_channels:
+                        break
 
             if num_channels is None:
                 # Fallback: assume single channel
@@ -263,11 +350,11 @@ class WrpmParserAE:
 
         Returns:
             DataFrame with columns:
-            - 'Crank Angle': 0-720 degrees
+            - 'Crank Angle': 0-360 degrees (compressor) or 0-720 degrees (engine)
             - Multiple curve columns named like 'Machine - Location.ULTRASONIC G 36KHZ - 44KHZ.ID'
         """
         with self._get_zipfile() as z:
-            # Parse metadata
+            # Parse metadata (this also detects machine type)
             self.parse_machine_id(z)
             self.parse_date_from_filename(z)
             self.extract_calibration(z)
@@ -300,25 +387,30 @@ class WrpmParserAE:
             # Segment multi-channel data
             channels = self.segment_multichannel_data(ae_data)
 
-            # Create DataFrame
-            # Assume each channel has multiple revolutions - take first revolution
-            points_per_rev = 355  # Standard for 0-720 degrees
+            # Create DataFrame with correct crank angle range based on machine type
+            # Compressor: 360°, Engine: 720°
+            if self.is_engine:
+                points_per_rev = 710
+                max_angle = 720
+            else:
+                points_per_rev = 355
+                max_angle = 360  # Compressor uses 360°
 
             # Create crank angle column
-            crank_angles = np.linspace(0, 720, points_per_rev)
+            crank_angles = np.linspace(0, max_angle, points_per_rev)
 
             df_data = {'Crank Angle': crank_angles}
 
             # Add each channel as a column
             for ch_num, ch_data in channels.items():
-                # Take first revolution (first 355 points)
+                # Take first revolution
                 if len(ch_data) >= points_per_rev:
                     ch_waveform = ch_data[:points_per_rev]
                 else:
                     # Interpolate if needed
                     ch_waveform = np.interp(
                         crank_angles,
-                        np.linspace(0, 720, len(ch_data)),
+                        np.linspace(0, max_angle, len(ch_data)),
                         ch_data
                     )
 
@@ -330,12 +422,76 @@ class WrpmParserAE:
             df = pd.DataFrame(df_data)
             return df
 
+    def parse_pressure_to_dataframe(self) -> Optional[pd.DataFrame]:
+        """
+        Parse WRPM file and extract PVPT (pressure) curves.
+
+        Returns:
+            DataFrame with columns:
+            - 'Crank Angle': 0-360 degrees (compressor) or 0-720 degrees (engine)
+            - Multiple pressure curve columns named like 'Machine - C.{X}P.PVPT.{X}P'
+            Returns None if no pressure data available.
+        """
+        with self._get_zipfile() as z:
+            # Parse metadata (this also detects machine type)
+            self.parse_machine_id(z)
+            self.parse_date_from_filename(z)
+            self.extract_calibration(z)
+
+            # Find waveform files
+            waveform_files = self.find_waveform_files(z)
+
+            # Check for pressure data
+            if not waveform_files['pressure']:
+                return None
+
+            # Extract pressure data
+            pressure_raw = self.parse_waveform_int16(z, waveform_files['pressure'])
+            pressure_data = self.apply_calibration_psi(pressure_raw, self.full_scale_psi)
+
+            # Segment multi-channel data
+            channels = self.segment_multichannel_data(pressure_data)
+
+            # Create DataFrame with correct crank angle range based on machine type
+            if self.is_engine:
+                points_per_rev = 710
+                max_angle = 720
+            else:
+                points_per_rev = 355
+                max_angle = 360
+
+            # Create crank angle column
+            crank_angles = np.linspace(0, max_angle, points_per_rev)
+
+            df_data = {'Crank Angle': crank_angles}
+
+            # Add each channel as a pressure column
+            for ch_num, ch_data in channels.items():
+                # Take first revolution
+                if len(ch_data) >= points_per_rev:
+                    ch_waveform = ch_data[:points_per_rev]
+                else:
+                    # Interpolate if needed
+                    ch_waveform = np.interp(
+                        crank_angles,
+                        np.linspace(0, max_angle, len(ch_data)),
+                        ch_data
+                    )
+
+                # Create column name for pressure curves (PVPT format)
+                machine_id = self.machine_id or "Unknown"
+                col_name = f"{machine_id} - C.{ch_num}P.PVPT (PRESSURE).{ch_num}P"
+                df_data[col_name] = ch_waveform
+
+            df = pd.DataFrame(df_data)
+            return df
+
     def get_curve_info(self) -> Dict:
         """
         Get curve metadata (similar to XML parser's get_curve_info).
 
         Returns:
-            Dict with file information
+            Dict with file information including machine type and crank angle range
         """
         with self._get_zipfile() as z:
             self.parse_machine_id(z)
@@ -349,14 +505,25 @@ class WrpmParserAE:
                 channels = self.segment_multichannel_data(ae_raw)
                 ae_curves = list(channels.keys())
 
+            # Determine points and angle range based on machine type
+            if self.is_engine:
+                data_points = 710
+                angle_range = '0-720°'
+            else:
+                data_points = 355
+                angle_range = '0-360°'
+
             return {
                 'total_curves': len(ae_curves),
                 'ae_curves': ae_curves,
-                'data_points': 355,  # Standard
-                'crank_angle_range': '0-720°',
+                'data_points': data_points,
+                'crank_angle_range': angle_range,
                 'machine_id': self.machine_id,
                 'date': self.date,
-                'file_type': 'WRPM'
+                'file_type': 'WRPM',
+                'machine_type': self.machine_type,
+                'is_engine': self.is_engine,
+                'has_pressure_data': waveform_files['pressure'] is not None
             }
 
 
@@ -386,3 +553,34 @@ def get_wrpm_curve_info(wrpm_source) -> Dict:
     """
     parser = WrpmParserAE(wrpm_source)
     return parser.get_curve_info()
+
+
+def parse_wrpm_pressure_to_dataframe(wrpm_source) -> Optional[pd.DataFrame]:
+    """
+    Convenience function to parse WRPM file and extract PVPT pressure curves.
+
+    Args:
+        wrpm_source: Path to .wrpm file or file-like object
+
+    Returns:
+        DataFrame with crank angles and pressure curve data, or None if no pressure data
+    """
+    parser = WrpmParserAE(wrpm_source)
+    return parser.parse_pressure_to_dataframe()
+
+
+def is_engine_file(wrpm_source) -> bool:
+    """
+    Check if a WRPM file is from an engine (vs compressor).
+
+    Engine files should be excluded from valve leak detection analysis.
+
+    Args:
+        wrpm_source: Path to .wrpm file or file-like object
+
+    Returns:
+        True if file is from an engine (e.g., Unit 2E), False for compressors
+    """
+    parser = WrpmParserAE(wrpm_source)
+    info = parser.get_curve_info()
+    return info.get('is_engine', False)

@@ -285,16 +285,27 @@ if uploaded_file is not None:
         col1.metric("Total Curves", metadata.get('total_curves', 0))
         col2.metric("AE Curves Found", len(metadata.get('ae_curves', [])))
         col3.metric("Data Points", metadata.get('data_points', 0))
-        col4.metric("Crank Angle Range", metadata.get('crank_angle_range', '0-720°'))
+        col4.metric("Crank Angle Range", metadata.get('crank_angle_range', '0-360°'))
 
-        # Show file type badge
+        # Show file type badge with machine type
         if file_type == 'WRPM':
-            st.info(f"📊 **WRPM File** - Machine: {metadata.get('machine_id', 'Unknown')} | Date: {metadata.get('date', 'Unknown')}")
+            machine_type = metadata.get('machine_type', 'compressor')
+            is_engine = metadata.get('is_engine', False)
+            machine_type_display = "Engine" if is_engine else "Compressor"
+
+            st.info(f"📊 **WRPM File** - Machine: {metadata.get('machine_id', 'Unknown')} | Type: {machine_type_display} | Date: {metadata.get('date', 'Unknown')}")
+
+            # Warning for engine files
+            if is_engine:
+                st.warning("⚠️ **Engine File Detected** - This file is from an engine (720° crank angle), not a compressor. Valve leak detection is designed for compressors only. Analysis results may not be applicable.")
 
         st.markdown("---")
 
+        # Check if file is from engine
+        is_engine_file = metadata.get('is_engine', False)
+
         # Analyze button
-        if st.button("Analyze All Cylinders", type="primary", width='stretch'):
+        if st.button("Analyze All Cylinders", type="primary", width='stretch', disabled=is_engine_file):
             with st.spinner("Analyzing ultrasonic patterns..."):
                 if df_curves is None or len(df_curves) == 0:
                     st.error("Failed to parse file. Please check file format.")

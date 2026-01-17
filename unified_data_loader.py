@@ -3,10 +3,14 @@ Unified Data Loader for Both XML and WRPM Files
 
 Provides a single interface to load valve data regardless of file format.
 Automatically detects file type and returns data in consistent format.
+
+Machine Type Detection:
+- Compressors (unit names ending in C, like 2C, 3C): 360° crank angle
+- Engines (unit names ending in E, like 2E): 720° crank angle, excluded from leak detection
 """
 
 import pandas as pd
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from io import BytesIO, StringIO
 
 
@@ -45,6 +49,10 @@ def load_wrpm_file(uploaded_file) -> Tuple[pd.DataFrame, Dict, str]:
 
     Returns:
         Tuple of (curves_dataframe, metadata_dict, 'WRPM')
+
+    Note:
+        Engine files (e.g., Unit 2E) will have 'is_engine': True in metadata
+        and should be excluded from leak detection analysis.
     """
     from wrpm_parser_ae import WrpmParserAE
 
@@ -63,15 +71,18 @@ def load_wrpm_file(uploaded_file) -> Tuple[pd.DataFrame, Dict, str]:
         parser = WrpmParserAE(file_bytes)
         df_curves = parser.parse_to_dataframe()
 
-        # Create metadata dict
+        # Create metadata dict with machine type info
         metadata = {
             'machine_id': info.get('machine_id', 'Unknown'),
             'date': info.get('date'),
             'total_curves': info.get('total_curves', 0),
             'ae_curves': info.get('ae_curves', []),
             'data_points': info.get('data_points', 0),
-            'crank_angle_range': info.get('crank_angle_range', '0-720°'),
-            'file_type': 'WRPM'
+            'crank_angle_range': info.get('crank_angle_range', '0-360°'),
+            'file_type': 'WRPM',
+            'machine_type': info.get('machine_type', 'compressor'),
+            'is_engine': info.get('is_engine', False),
+            'has_pressure_data': info.get('has_pressure_data', False)
         }
 
         return df_curves, metadata, 'WRPM'
