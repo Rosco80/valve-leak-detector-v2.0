@@ -9,7 +9,7 @@ import numpy as np
 import plotly.graph_objects as go
 from xml_parser import parse_curves_xml, get_curve_info
 from leak_detector import PhysicsBasedLeakDetector
-from unified_data_loader import load_valve_data, get_ultrasonic_curves
+from unified_data_loader import load_valve_data, get_ultrasonic_curves, load_wrpm_pressure_data
 import re
 
 # Page configuration
@@ -221,6 +221,109 @@ def create_waveform_plot(amplitudes, crank_angles, is_leak, mean_amp, valve_name
 
     return fig
 
+
+def create_pressure_plot(pressure_data, crank_angles, channel_name):
+    """
+    Create pressure curve visualization with TDC/BDC markers.
+
+    Args:
+        pressure_data: Array of pressure values (PSI)
+        crank_angles: Array of crank angle values (degrees)
+        channel_name: Name of the pressure channel
+
+    Returns:
+        Plotly figure object
+    """
+    fig = go.Figure()
+
+    # Add pressure curve
+    fig.add_trace(go.Scatter(
+        x=crank_angles,
+        y=pressure_data,
+        mode='lines',
+        name='Pressure',
+        line=dict(color='#1976d2', width=2),
+        hovertemplate='<b>Crank Angle:</b> %{x}°<br><b>Pressure:</b> %{y:.1f} PSI<extra></extra>'
+    ))
+
+    # Add TDC marker at 0° (and 360° if in range)
+    max_angle = max(crank_angles)
+    fig.add_vline(
+        x=0,
+        line_dash="dash",
+        line_color="#666666",
+        line_width=1.5,
+        annotation_text="TDC",
+        annotation_position="top",
+        annotation_font_color="#666666"
+    )
+
+    if max_angle >= 360:
+        fig.add_vline(
+            x=360,
+            line_dash="dash",
+            line_color="#666666",
+            line_width=1.5,
+            annotation_text="TDC",
+            annotation_position="top",
+            annotation_font_color="#666666"
+        )
+
+    # Add BDC marker at 180°
+    fig.add_vline(
+        x=180,
+        line_dash="dash",
+        line_color="#999999",
+        line_width=1.5,
+        annotation_text="BDC",
+        annotation_position="top",
+        annotation_font_color="#999999"
+    )
+
+    # Extract cylinder info from channel name for title
+    # Format: "Machine - C.1P.PVPT (PRESSURE).1P"
+    import re
+    match = re.search(r'C\.(\d+)P', channel_name)
+    if match:
+        cyl_num = match.group(1)
+        title = f"Cylinder {cyl_num} - Pressure (PVPT)"
+    else:
+        title = channel_name
+
+    # Update layout
+    fig.update_layout(
+        title={
+            'text': f"<b>{title}</b>",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 16}
+        },
+        xaxis_title="<b>Crank Angle (degrees)</b>",
+        yaxis_title="<b>Pressure (PSI)</b>",
+        height=400,
+        hovermode='x unified',
+        showlegend=False,
+        template='plotly_white',
+        font=dict(size=12),
+        margin=dict(l=60, r=40, t=60, b=60),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='#e0e0e0',
+            zeroline=False,
+            range=[0, max_angle]
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='#e0e0e0',
+            zeroline=True,
+            zerolinewidth=1,
+            zerolinecolor='#ccc'
+        )
+    )
+
+    return fig
+
+
 # Header
 st.markdown('<div class="main-header">🤖 AI-Powered Valve Leak Detection</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Intelligent Pattern Recognition for Compressors</div>', unsafe_allow_html=True)
@@ -279,6 +382,12 @@ if uploaded_file is not None:
         # Load data using unified loader
         with st.spinner(f"Analyzing {file_type_display} file..."):
             df_curves, metadata, file_type = load_valve_data(uploaded_file)
+
+        # Load pressure data if WRPM file
+        df_pressure = None
+        if file_type == 'WRPM' and metadata.get('has_pressure_data', False):
+            uploaded_file.seek(0)  # Reset file pointer
+            df_pressure = load_wrpm_pressure_data(uploaded_file)
 
         # Display metadata
         col1, col2, col3, col4 = st.columns(4)
@@ -643,6 +752,34 @@ if uploaded_file is not None:
                         Indicates certainty of the AI classification based on how far the measurements are from the 50% threshold.
                         """)
 
+                    # Pressure Curve Analysis Section (WRPM files only)
+                    if df_pressure is not None and len(df_pressure) > 0:
+                        st.markdown("---")
+                        st.markdown('<div class="section-header">📊 Pressure Curve Analysis (PVPT)</div>', unsafe_allow_html=True)
+                        st.markdown("""
+                        **Valve Timing Reference:**
+                        - **TDC (Top Dead Center):** 0° and 360° - Piston at top of stroke
+                        - **BDC (Bottom Dead Center):** 180° - Piston at bottom of stroke
+
+                        Pressure curves help verify valve timing and can indicate valve problems when events occur at unexpected crank angles.
+                        """)
+
+                        # Get pressure curve columns (all columns except 'Crank Angle')
+                        pressure_cols = [col for col in df_pressure.columns if col != 'Crank Angle']
+
+                        if pressure_cols:
+                            # Create expandable section for each pressure curve
+                            with st.expander(f"View Pressure Curves ({len(pressure_cols)} channels)", expanded=True):
+                                for col in pressure_cols:
+                                    fig = create_pressure_plot(
+                                        pressure_data=df_pressure[col].values,
+                                        crank_angles=df_pressure['Crank Angle'].values,
+                                        channel_name=col
+                                    )
+                                    st.plotly_chart(fig, width='stretch')
+                        else:
+                            st.warning("Pressure data found but no channels could be extracted.")
+
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         st.info("Please check that your file is a valid Windrock XML or WRPM file.")
@@ -667,7 +804,7 @@ else:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9rem;'>
-    <p><strong>By Autoflow Solutions</strong> | v2.1</p>
+    <p><strong>By Autoflow Solutions</strong> | v2.2</p>
     <p>AI-Powered Valve Leak Detection | Intelligent Pattern Recognition</p>
 </div>
 """, unsafe_allow_html=True)

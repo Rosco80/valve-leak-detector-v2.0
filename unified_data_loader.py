@@ -181,3 +181,30 @@ def parse_valve_id_from_column(column_name: str) -> str:
 
     # Fallback: return column name
     return column_name.split('-')[-1].strip() if '-' in column_name else column_name
+
+
+def load_wrpm_pressure_data(uploaded_file) -> Optional[pd.DataFrame]:
+    """
+    Load pressure (PVPT) curves from a WRPM file.
+
+    Args:
+        uploaded_file: Streamlit UploadedFile object with .wrpm file
+
+    Returns:
+        DataFrame with pressure curves, or None if no pressure data available
+        Columns: 'Crank Angle' + pressure curve columns
+    """
+    from wrpm_parser_ae import WrpmParserAE
+
+    try:
+        # Create BytesIO object from uploaded file
+        file_bytes = BytesIO(uploaded_file.read())
+
+        # Parse WRPM file for pressure data
+        parser = WrpmParserAE(file_bytes)
+        df_pressure = parser.parse_pressure_to_dataframe()
+
+        return df_pressure
+
+    except Exception as e:
+        return None
