@@ -804,7 +804,7 @@ else:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9rem;'>
-    <p><strong>By Autoflow Solutions</strong> | v2.2</p>
+    <p><strong>By Autoflow Solutions</strong> | v2.2.1</p>
     <p>AI-Powered Valve Leak Detection | Intelligent Pattern Recognition</p>
 </div>
 """, unsafe_allow_html=True)
